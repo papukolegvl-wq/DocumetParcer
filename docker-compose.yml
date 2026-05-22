@@ -1,0 +1,182 @@
+version: '3.8'
+
+# ============================================================
+#   Document Processing Pipeline — полный стек
+#   Сервисы: PostgreSQL · MinIO · Elasticsearch · Airflow · FastAPI Backend
+# ============================================================
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  environment:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@postgres/airflow
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    LOAD_EXEMPLARY_DAGS: "False"
+    MINIO_ENDPOINT: http://minio:9000
+    ELASTICSEARCH_HOST: http://elasticsearch:9200
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./requirements.txt:/opt/airflow/requirements.txt
+    - airflow-logs-volume:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+    elasticsearch:
+      condition: service_healthy
+    minio:
+      condition: service_started
+
+services:
+
+  # ──────────────────────────────────────
+  # 1. PostgreSQL — метаданные Airflow
+  # ──────────────────────────────────────
+  postgres:
+    image: postgres:13
+    container_name: pipeline-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow_password
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ──────────────────────────────────────
+  # 2. MinIO — объектное S3-хранилище
+  # ──────────────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2023-05-18T00-05-36Z
+    container_name: pipeline-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"    # S3 API
+      - "9001:9001"    # Web Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data-volume:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────
+  # 3. Elasticsearch — векторный индекс
+  # ──────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    container_name: pipeline-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - http.cors.enabled=true
+      - http.cors.allow-origin=*
+      - "http.cors.allow-headers=X-Requested-With,Content-Type,Content-Length,Authorization"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data-volume:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ──────────────────────────────────────
+  # 4. Airflow — Webserver
+  # ──────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: pipeline-airflow-webserver
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+        airflow db upgrade &&
+        airflow users create
+          --username admin
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@example.com
+          --password admin
+          2>/dev/null || true &&
+        airflow webserver
+      "
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────
+  # 5. Airflow — Scheduler
+  # ──────────────────────────────────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: pipeline-airflow-scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+    command: airflow scheduler
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────
+  # 6. FastAPI Search Backend
+  # ──────────────────────────────────────
+  search-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: pipeline-search-backend
+    restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/docs"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+# ──────────────────────────────────────────────
+# Именованные тома (данные сохраняются между перезапусками)
+# ──────────────────────────────────────────────
+volumes:
+  postgres-db-volume:
+  minio-data-volume:
+  es-data-volume:
+  airflow-logs-volume:
