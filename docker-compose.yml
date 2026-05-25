@@ -9,6 +9,7 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: Dockerfile.airflow
+    network: host
   environment:
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@postgres/airflow
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -154,6 +155,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+      network: host
     container_name: pipeline-search-backend
     restart: unless-stopped
     depends_on:
