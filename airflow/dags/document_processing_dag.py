@@ -200,21 +200,11 @@ def scan_s3_documents(**context):
             filename = file_key
             print(f"[!] Не удалось извлечь ЕГРПОУ из пути '{file_key}'. Присвоен дефолтный.")
 
-        # Проверяем, был ли файл уже проиндексирован
-        query = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"egrpou": egrpou}},
-                        {"term": {"filename": filename}},
-                    ]
-                }
-            }
-        }
+        # Проверяем, был ли файл уже проиндексирован (по ID первого чанка)
+        file_id = f"{egrpou}-{filename.replace('/', '_').replace('.', '_')}-0"
         try:
-            check_res = es.search(index=ES_INDEX_NAME, body=query, size=1)
-            if check_res["hits"]["total"]["value"] > 0:
-                print(f"[~] Файл '{filename}' (ЄДРПОУ {egrpou}) уже проіндексований. Пропускаємо.")
+            if es.exists(index=ES_INDEX_NAME, id=file_id):
+                print(f"[~] Файл '{filename}' (ЄДРПОУ {egrpou}) уже проіндексований (ID: {file_id}). Пропускаємо.")
                 continue
         except Exception as e:
             print(f"[!] Ошибка проверки индекса ES для '{filename}': {e}")
