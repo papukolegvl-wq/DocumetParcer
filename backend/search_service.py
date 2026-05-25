@@ -130,3 +130,24 @@ class SearchService:
                 "score": round(score, 4)
             })
         return results
+
+    def get_unique_files(self, egrpou: str) -> list:
+        """Возвращает список уникальных имен файлов для данного ЕГРПОУ"""
+        body = {
+            "size": 0,
+            "query": {
+                "term": {"egrpou": egrpou}
+            },
+            "aggs": {
+                "unique_files": {
+                    "terms": {
+                        "field": "filename",
+                        "size": 1000
+                    }
+                }
+            }
+        }
+        res = self.es.search(index=self.index_name, body=body)
+        buckets = res.get("aggregations", {}).get("unique_files", {}).get("buckets", [])
+        return [b["key"] for b in buckets]
+

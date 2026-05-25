@@ -985,6 +985,7 @@
     <script>
         let currentSearchMode = 'keyword';
         let lastSearchResults = []; // Глобальное хранилище для RAG
+        let currentUniqueFiles = []; // Список уникальных файлов клиента для RAG
         const egrpouInput = document.getElementById('egrpou');
         const queryInput = document.getElementById('query');
         const limitInput = document.getElementById('limit');
@@ -1252,6 +1253,20 @@
                 lastSearchResults = data; // Сохраняем результаты для RAG
                 renderResults(data, query);
 
+                // Загружаем список уникальных файлов клиента
+                try {
+                    const filesRes = await fetch(`/unique_files?egrpou=${encodeURIComponent(egrpou)}`);
+                    if (filesRes.ok) {
+                        const filesData = await filesRes.json();
+                        currentUniqueFiles = filesData.files || [];
+                    } else {
+                        currentUniqueFiles = [];
+                    }
+                } catch (e) {
+                    console.error("Ошибка при получении списка файлов клиента:", e);
+                    currentUniqueFiles = [];
+                }
+
                 // Управляем видимостью ИИ панели
                 if (data && data.length > 0) {
                     aiPanel.style.display = 'flex';
@@ -1448,6 +1463,17 @@
             aiResponse.innerHTML = '';
 
             try {
+                // Формируем информацию обо всех загруженных документах клиента
+                let filesContext = 'СПИСОК ВСЕХ ЗАГРУЖЕННЫХ ДОКУМЕНТОВ КЛИЕНТА:\n';
+                if (currentUniqueFiles && currentUniqueFiles.length > 0) {
+                    currentUniqueFiles.forEach((filename, idx) => {
+                        filesContext += `${idx + 1}. ${filename}\n`;
+                    });
+                } else {
+                    filesContext += 'Нет информации о загруженных файлах.\n';
+                }
+                filesContext += '\n';
+
                 // Формируем контекст из чанков документов
                 let context = '';
                 lastSearchResults.forEach((chunk, index) => {
@@ -1456,12 +1482,13 @@
 
                 const systemInstruction = 
                     "Ты профессиональный юридический и аналитический ассистент по анализу документов. " +
-                    "Твоя задача — точно отвечать на вопросы пользователя на основе предоставленных фрагментов документов (контекста). " +
-                    "Если во фрагментах нет ответа на вопрос, честно скажи об этом, не пытайся выдумывать факты. " +
+                    "Твоя задача — точно отвечать на вопросы пользователя на основе предоставленных фрагментов документов (контекста) и списка всех документов клиента. " +
+                    "Если пользователь спрашивает об общем количестве документов, о наличии каких-то файлов или просит список файлов, используй список всех загруженных документов клиента. " +
+                    "Если во фрагментах нет ответа на содержательный вопрос по тексту, честно скажи об этом, не пытайся выдумывать факты. " +
                     "Обязательно ссылайся на названия файлов (например, [имя_файла.pdf]) при указании конкретных фактов из текста. " +
                     "Форматируй свой ответ с использованием разметки Markdown: жирный шрифт для ключевых понятий, маркированные списки для перечислений, абзацы.";
 
-                const fullPrompt = `${systemInstruction}\n\nКОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${context}\nЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n${promptText}`;
+                const fullPrompt = `${systemInstruction}\n\n${filesContext}КОНТЕКСТ ИЗ ДОКУМЕНТОВ (ФРАГМЕНТЫ):\n${context}\nЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n${promptText}`;
 
                 // Получаем выбранную модель из селектора
                 const selectedModel = document.getElementById('geminiModel').value || 'models/gemini-1.5-flash';

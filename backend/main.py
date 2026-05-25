@@ -100,3 +100,17 @@ def index_document_chunk(payload: DocumentPayload):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось проиндексировать чанк: {str(e)}")
+
+@app.get("/unique_files")
+def get_unique_files(egrpou: str = Query(..., description="Код ЕГРПОУ/ОКПО клиента")):
+    """
+    Возвращает список всех уникальных файлов клиента с данным ЕГРПОУ
+    """
+    if not egrpou:
+        raise HTTPException(status_code=400, detail="Параметр 'egrpou' является обязательным.")
+    try:
+        files = search_service.get_unique_files(egrpou)
+        return {"files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось получить список файлов: {str(e)}")
+
