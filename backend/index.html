@@ -887,13 +887,13 @@
 
                     <!-- Лимиты и отправка -->
                     <div class="limit-group">
-                        <div class="limit-slider-container">
+                        <div class="limit-slider-container" style="display: none;">
                             <label for="limit" style="font-size: 0.8rem;">Лимит:</label>
                             <input type="range" id="limit" min="1" max="20" value="10" oninput="document.getElementById('limitVal').innerText = this.value">
                             <span class="limit-value" id="limitVal">10</span>
                         </div>
 
-                        <label class="checkbox-container">
+                        <label class="checkbox-container" style="display: none;">
                             <input type="checkbox" id="showAll" onchange="toggleLimitSlider(this.checked)">
                             <span>Все</span>
                         </label>
@@ -960,11 +960,16 @@
             <div class="ai-response-box" id="aiResponse" style="display: none;"></div>
         </div>
 
-        <!-- Раздел результатов -->
-        <div class="results-section">
-            <div class="results-header">
-                Результаты поиска
-                <span class="results-count" id="resultsCount" style="display: none;">Найдено чанков: 0</span>
+        <!-- Раздел результатов (скрыт по запросу — чанки не выводятся) -->
+        <div class="results-section" style="display: none;">
+            <div class="results-header" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span>Результаты поиска</span>
+                    <span class="results-count" id="resultsCount" style="display: none;">Найдено чанков: 0</span>
+                </div>
+                <button type="button" class="action-btn" id="toggleResultsBtn" onclick="toggleResultsVisibility()" style="display: none; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem;">
+                    <span>👁️</span> Показать фрагменты
+                </button>
             </div>
 
             <!-- Контейнер для отображения карт -->
@@ -1221,6 +1226,8 @@
 
             // Отображаем скелетоны (индикатор загрузки)
             resultsCount.style.display = 'none';
+            document.getElementById('toggleResultsBtn').style.display = 'none';
+            resultsContainer.style.display = 'flex'; // Показываем скелетоны
             resultsContainer.innerHTML = `
                 <div class="result-card skeleton-card skeleton"></div>
                 <div class="result-card skeleton-card skeleton"></div>
@@ -1258,6 +1265,8 @@
                 console.error(error);
                 lastSearchResults = [];
                 aiPanel.style.display = 'none';
+                document.getElementById('toggleResultsBtn').style.display = 'none';
+                resultsContainer.style.display = 'flex'; // Показываем ошибку
                 resultsContainer.innerHTML = `
                     <div class="empty-state" style="border-color: rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.05);">
                         <div class="empty-icon" style="color: var(--error);">⚠️</div>
@@ -1270,15 +1279,36 @@
             }
         }
 
+        let showResultsFlag = false;
+
+        function toggleResultsVisibility() {
+            const container = document.getElementById('resultsContainer');
+            const btn = document.getElementById('toggleResultsBtn');
+            showResultsFlag = !showResultsFlag;
+            
+            if (showResultsFlag) {
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.gap = '1rem';
+                btn.innerHTML = '<span>🙈</span> Скрыть фрагменты';
+            } else {
+                container.style.display = 'none';
+                btn.innerHTML = '<span>👁️</span> Показать фрагменты';
+            }
+        }
+
         // Вывод результатов
         function renderResults(results, query) {
             resultsContainer.innerHTML = '';
+            const toggleBtn = document.getElementById('toggleResultsBtn');
             
             if (!results || results.length === 0) {
                 lastSearchResults = [];
                 aiPanel.style.display = 'none';
                 resultsCount.style.display = 'block';
                 resultsCount.innerText = 'Найдено чанков: 0';
+                toggleBtn.style.display = 'none';
+                resultsContainer.style.display = 'flex';
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-icon">🔍</div>
@@ -1293,6 +1323,12 @@
 
             resultsCount.style.display = 'block';
             resultsCount.innerText = `Найдено чанков: ${results.length}`;
+
+            // По умолчанию скрываем детальные результаты
+            toggleBtn.style.display = 'flex';
+            showResultsFlag = false;
+            resultsContainer.style.display = 'none';
+            toggleBtn.innerHTML = '<span>👁️</span> Показать фрагменты';
 
             results.forEach((chunk, index) => {
                 const card = document.createElement('div');
