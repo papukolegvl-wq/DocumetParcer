@@ -7,10 +7,6 @@ version: '3.8'
 
 x-airflow-common: &airflow-common
   image: ghcr.io/papukolegvl-wq/documetparcer-airflow:latest
-  build:
-    context: .
-    dockerfile: Dockerfile.airflow
-    network: host
   environment:
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@postgres/airflow
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -154,10 +150,6 @@ services:
   # ──────────────────────────────────────
   search-backend:
     image: ghcr.io/papukolegvl-wq/documetparcer-backend:latest
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-      network: host
     container_name: pipeline-search-backend
     restart: unless-stopped
     depends_on:
