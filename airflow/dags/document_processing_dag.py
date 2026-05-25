@@ -152,14 +152,26 @@ def scan_s3_documents(**context):
     s3 = get_s3_client()
     es = get_es_client()
 
+    # Получаем ВСЕ объекты из бакета (с пагинацией)
+    all_objects = []
+    continuation_token = None
     try:
-        response = s3.list_objects_v2(Bucket=BUCKET_NAME)
+        while True:
+            list_kwargs = {"Bucket": BUCKET_NAME}
+            if continuation_token:
+                list_kwargs["ContinuationToken"] = continuation_token
+            response = s3.list_objects_v2(**list_kwargs)
+            all_objects.extend(response.get("Contents", []))
+            if response.get("IsTruncated"):
+                continuation_token = response.get("NextContinuationToken")
+            else:
+                break
     except Exception as e:
         print(f"[!] Ошибка получения списка файлов из S3: {e}")
         context["ti"].xcom_push(key="files_to_process", value=[])
         return
 
-    if "Contents" not in response:
+    if not all_objects:
         print("[i] Бакет S3 пуст. Новых файлов для обработки нет.")
         context["ti"].xcom_push(key="files_to_process", value=[])
         return
@@ -170,7 +182,7 @@ def scan_s3_documents(**context):
 
     files_to_process = []
 
-    for obj in response["Contents"]:
+    for obj in all_objects:
         file_key  = obj["Key"]
         file_size = obj["Size"]
 
