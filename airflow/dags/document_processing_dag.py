@@ -4,6 +4,8 @@ import os
 import re
 import traceback
 import json
+import zipfile
+import xml.etree.ElementTree as ET
 from PIL import Image
 
 from airflow import DAG
@@ -65,6 +67,30 @@ def _cyrillic_ratio(text: str) -> float:
         return 0.0
     cyrillic = sum(1 for c in letters if "\u0400" <= c <= "\u04FF")
     return cyrillic / len(letters)
+
+
+def _extract_text_from_docx(file_bytes: bytes) -> str:
+    """Извлекает текст из файлов DOCX (Office Open XML) без сторонних зависимостей"""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+            xml_content = z.read("word/document.xml")
+            root = ET.fromstring(xml_content)
+            
+            paragraphs = []
+            for elem in root.iter():
+                # Проверяем тег параграфа
+                if elem.tag.endswith('}p') or elem.tag == 'p':
+                    p_text = []
+                    # Находим все текстовые элементы внутри параграфа
+                    for child in elem.iter():
+                        if child.tag.endswith('}t') or child.tag == 't':
+                            if child.text:
+                                p_text.append(child.text)
+                    paragraphs.append("".join(p_text))
+            return "\n".join(paragraphs)
+    except Exception as e:
+        print(f"[!] Ошибка извлечения текста из DOCX: {e}")
+        return ""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -140,6 +166,7 @@ def scan_s3_documents(**context):
 
     IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
     PDF_EXTS   = {".pdf"}
+    DOCX_EXTS  = {".docx"}
 
     files_to_process = []
 
@@ -186,6 +213,8 @@ def scan_s3_documents(**context):
             ext_type = "pdf"
         elif ext in IMAGE_EXTS:
             ext_type = "image"
+        elif ext in DOCX_EXTS:
+            ext_type = "docx"
         else:
             ext_type = "text"
 
@@ -219,8 +248,8 @@ def extract_text_via_python(**context):
     ti = context["ti"]
     files_to_process = ti.xcom_pull(task_ids="scan_s3_documents_task", key="files_to_process") or []
 
-    # Отбираем только pdf и text
-    target_files = [f for f in files_to_process if f["ext_type"] in ("pdf", "text")]
+    # Отбираем только pdf, docx и text
+    target_files = [f for f in files_to_process if f["ext_type"] in ("pdf", "docx", "text")]
     print(f"[i] Файлов для Python-парсинга: {len(target_files)}")
 
     s3 = get_s3_client()
@@ -272,6 +301,15 @@ def extract_text_via_python(**context):
                 print(f"[!] Ошибка pdfplumber для '{filename}': {e}")
                 traceback.print_exc()
                 ocr_callbacks.append({"key": file_key, "egrpou": egrpou, "filename": filename})
+                continue
+
+        elif ext_type == "docx":
+            try:
+                raw_text = _extract_text_from_docx(file_data)
+                print(f"[✓] _extract_text_from_docx извлёк {len(raw_text)} символов.")
+            except Exception as e:
+                print(f"[!] Ошибка парсинга DOCX для '{filename}': {e}")
+                traceback.print_exc()
                 continue
 
         else:  # ext_type == "text"
